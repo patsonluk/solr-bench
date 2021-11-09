@@ -42,6 +42,8 @@ PACKAGE_DIR=`jq -r '."repository"."package-subdir"' $CONFIGFILE`
 LOCALREPO_VC_DIR=$LOCALREPO/.git
 GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
 
+echo_blue "Checking solr download at $ORIG_WORKING_DIR/SolrNightlyBenchmarksWorkDirectory/Download/solr-$COMMIT.tgz"
+
 export SOLR_TARBALL_NAME="solr-$COMMIT.tgz"
 export SOLR_TARBALL_PATH="SolrNightlyBenchmarksWorkDirectory/Download/$SOLR_TARBALL_NAME"
 
@@ -95,8 +97,6 @@ wget -c https://archive.apache.org/dist/zookeeper/zookeeper-3.5.6/apache-zookeep
 for i in `jq -r '."pre-download" | .[]' $CONFIGFILE`; do download $i; done
 
 # Clone/checkout the git repository and build Solr
-echo_blue "Checking solr download at $ORIG_WORKING_DIR/SolrNightlyBenchmarksWorkDirectory/Download/solr-$COMMIT.tgz"
-
 if [[ "null" == `jq -r '.["solr-package"]' $CONFIGFILE` ]] && [ ! -f $ORIG_WORKING_DIR/SolrNightlyBenchmarksWorkDirectory/Download/solr-$COMMIT.tgz ]
 then
      echo_blue "Building Solr package for $COMMIT"
