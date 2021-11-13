@@ -21,6 +21,9 @@ public class QueryBenchmark {
   @JsonProperty("json-query")
   public Boolean isJsonQuery;
 
+  @JsonProperty("dump-response")
+  public Boolean dumpResponse = Boolean.FALSE;
+
   @JsonProperty("uri")
   public String uri = "/select";
 

@@ -1,16 +1,6 @@
 package org.apache.solr.benchmarks;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.io.StringReader;
+import java.io.*;
 import java.lang.invoke.MethodHandles;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -157,32 +147,43 @@ public class BenchmarksMain {
             for (QueryBenchmark benchmark : config.queryBenchmarks) {
             	results.get("query-benchmarks").put(benchmark.name, new ArrayList());
 
-
-                for (int threads = benchmark.minThreads; threads <= benchmark.maxThreads; threads++) {
-                    QueryGenerator queryGenerator = new QueryGenerator(benchmark);
-
-                    HttpSolrClient client = new HttpSolrClient.Builder(solrCloud.nodes.get(0).getBaseUrl()).build();
-                    ControlledExecutor controlledExecutor = new ControlledExecutor(threads,
-                            benchmark.duration,
-                            benchmark.rpm,
-                            benchmark.totalCount,
-                            benchmark.warmCount,
-                            getQuerySupplier(queryGenerator, client, benchmark.collection));
-                    long start = System.currentTimeMillis();
-                    try {
-                        controlledExecutor.run();
-                    } finally {
-                        client.close();
+            	PrintWriter responseWriter = null;
+            	try {
+                    if (benchmark.dumpResponse) {
+                        String fileName = "query-response-" + benchmark.name;
+                        System.out.println("Dumping query response to " + fileName);
+                        responseWriter = new PrintWriter(new FileWriter(fileName));
                     }
+                    for (int threads = benchmark.minThreads; threads <= benchmark.maxThreads; threads++) {
+                        QueryGenerator queryGenerator = new QueryGenerator(benchmark);
 
-                    long time = System.currentTimeMillis() - start;
-                    System.out.println("Took time: " + time);
-                    if (time > 0) {
-                        System.out.println("Thread: " + threads + ", Median latency: " + controlledExecutor.stats.getPercentile(50) +
-                                ", 95th latency: " + controlledExecutor.stats.getPercentile(95));
-                        ((List)results.get("query-benchmarks").get(benchmark.name)).add(
-                        		Util.map("threads", threads, "50th", controlledExecutor.stats.getPercentile(50), "90th", controlledExecutor.stats.getPercentile(90), 
-                        				"95th", controlledExecutor.stats.getPercentile(95), "mean", controlledExecutor.stats.getMean(), "total-queries", controlledExecutor.stats.getN()));
+                        HttpSolrClient client = new HttpSolrClient.Builder(solrCloud.nodes.get(0).getBaseUrl()).build();
+                        ControlledExecutor controlledExecutor = new ControlledExecutor(threads,
+                                benchmark.duration,
+                                benchmark.rpm,
+                                benchmark.totalCount,
+                                benchmark.warmCount,
+                                getQuerySupplier(queryGenerator, client, benchmark.collection, responseWriter));
+                        long start = System.currentTimeMillis();
+                        try {
+                            controlledExecutor.run();
+                        } finally {
+                            client.close();
+                        }
+
+                        long time = System.currentTimeMillis() - start;
+                        System.out.println("Took time: " + time);
+                        if (time > 0) {
+                            System.out.println("Thread: " + threads + ", Median latency: " + controlledExecutor.stats.getPercentile(50) +
+                                    ", 95th latency: " + controlledExecutor.stats.getPercentile(95));
+                            ((List) results.get("query-benchmarks").get(benchmark.name)).add(
+                                    Util.map("threads", threads, "50th", controlledExecutor.stats.getPercentile(50), "90th", controlledExecutor.stats.getPercentile(90),
+                                            "95th", controlledExecutor.stats.getPercentile(95), "mean", controlledExecutor.stats.getMean(), "total-queries", controlledExecutor.stats.getN()));
+                        }
+                    }
+                } finally {
+            	    if (responseWriter != null) {
+            	        responseWriter.close();
                     }
                 }
             }
@@ -201,14 +202,17 @@ public class BenchmarksMain {
         }
     }
 
-    private static Supplier<Runnable> getQuerySupplier(QueryGenerator queryGenerator, HttpSolrClient client, String collection) {
+    private static Supplier<Runnable> getQuerySupplier(QueryGenerator queryGenerator, HttpSolrClient client, String collection, final PrintWriter responseFile) {
         return () -> {
             QueryRequest qr = queryGenerator.nextRequest();
             if (qr == null) return null;
             return () -> {
                 try {
                     NamedList<Object> rsp = client.request(qr, collection);
-                    printErrOutput(qr, rsp);
+                    String rspString = printErrOutput(qr, rsp);
+                    if (rspString != null && responseFile != null) {
+                        responseFile.println(rspString);
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -216,10 +220,10 @@ public class BenchmarksMain {
         };
     }
 
-    private static void printErrOutput(QueryRequest qr, NamedList<Object> rsp) throws IOException {
+    private static String printErrOutput(QueryRequest qr, NamedList<Object> rsp) throws IOException {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         if (rsp.get("stream") == null) {
-        	return;
+        	return null;
         }
         IOUtils.copy((InputStream) rsp.get("stream"), baos);
         String errorout = new String(baos.toByteArray());
@@ -229,6 +233,7 @@ public class BenchmarksMain {
             System.out.println("failed query " + qr.toString());
             System.out.println("Error response " + errorout);
         }
+        return errorout;
     }
 
     static void index(String baseUrl, String collection, int threads, IndexBenchmark benchmark) throws Exception {

@@ -271,13 +271,13 @@ public class SolrCloud {
           return super.getParams();
         }
       };
-      
+
       try {
-	      ConfigSetAdminRequest.Delete delete = new ConfigSetAdminRequest.Delete();
-	      delete.setConfigSetName(configset);
-	      delete.process(hsc);
+        ConfigSetAdminRequest.Delete delete = new ConfigSetAdminRequest.Delete();
+        delete.setConfigSetName(configset);
+        delete.process(hsc);
       } catch (Exception ex) {
-    	  log.warn("Exception trying to delete configset", ex);
+        log.info("Exception trying to delete configset, perhaps configset does not exist. It's probably okay.");
       }
       create.setMethod(SolrRequest.METHOD.POST);
       create.setConfigSetName(configset);
@@ -285,22 +285,28 @@ public class SolrCloud {
       configsets.add(configset);
 
       // This is a hack. We want all configsets to be trusted. Hence, unsetting the data on the znode that has trusted=false.
-      try (SolrZkClient zkClient = new SolrZkClient(zookeeper.getHost() + ":" + zookeeper.getPort(), 100000, 100000, null, null)) {
+      for (int i = 0; i < 10; i++) {
+        try (SolrZkClient zkClient = new SolrZkClient(zookeeper.getHost() + ":" + zookeeper.getPort(), 100000, 100000, null, null)) {
+
           String path = ZkConfigManager.CONFIGS_ZKNODE + "/" + configset;
           if (zkClient.exists(path, true)) {
             zkClient.setData(path, (byte[]) null, true);
+            log.info("purged zknode " + path);
+            break;
           }
           String path2 = "/solr" + path;
           if (zkClient.exists(path2, true)) {
             zkClient.setData(path2, (byte[]) null, true);
+            log.info("purged zknode " + path2);
+            break;
           }
+          log.info("zk node is not found yet, waiting...");
+          Thread.sleep(1000); //sometimes the zknode is not available right the way
+        }
       }
-      log.info("Configset: " + configset +
-              " created successfully ");
-
-
     }
-
+    log.info("Configset: " + configset +
+            " created successfully ");
 
   }
 }
